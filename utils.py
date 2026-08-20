@@ -86,9 +86,9 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
         motion_cmd.motion_file = str(motion_path)
         print(f"[INFO] Using motion file: {motion_cmd.motion_file}")
         
-    # Check if motion_file is already set (e.g., via CLI --env.commands.motion.motion-file).
-    if motion_cmd.motion_file and Path(motion_cmd.motion_file).exists():
-        print(f"[INFO] Using local motion file: {motion_cmd.motion_file}")
+        # Check if motion_file is already set (e.g., via CLI --env.commands.motion.motion-file).
+        if motion_cmd.motion_file and Path(motion_cmd.motion_file).exists():
+            print(f"[INFO] Using local motion file: {motion_cmd.motion_file}")
 
     # Enable NaN guard if requested.
     if cfg.enable_nan_guard:
