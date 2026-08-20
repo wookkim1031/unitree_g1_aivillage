@@ -1,0 +1,55 @@
+motion_file: "/opt/nb/johan/data/motion_file/phuma_g1_v2/LocoMuJoCo/walk_chunk_0001.npz"
+
+env:
+  commands:
+    motion:
+      motion_file: "/opt/nb/johan/data/motion_file/phuma_g1_v2/LocoMuJoCo/walk_chunk_0001.npz"
+      resampling_time_range: [2.0, 4.0]
+      sampling_mode: "adaptive"
+
+      pose_range:
+        x: [-0.10, 0.10]
+        y: [-0.10, 0.10]
+        z: [-0.02, 0.02]
+        roll: [-0.15, 0.15]
+        pitch: [-0.15, 0.15]
+        yaw: [-0.30, 0.30]
+
+      velocity_range:
+        x: [-0.75, 0.75]
+        y: [-0.75, 0.75]
+        z: [-0.25, 0.25]
+        roll: [-0.60, 0.60]
+        pitch: [-0.60, 0.60]
+        yaw: [-0.90, 0.90]
+
+      joint_position_range: [-0.05, 0.05]
+      adaptive_kernel_size: 3
+      adaptive_lambda: 0.90
+      adaptive_uniform_ratio: 0.05
+      adaptive_alpha: 0.001
+      debug_vis: false
+
+      viz:
+        mode: "ghost"
+        ghost_color: [0.20, 0.60, 1.00, 0.35]
+
+  viewer:
+    distance: 3.5
+    elevation: -10.0
+    azimuth: 135.0
+    enable_reflections: false
+    enable_shadows: true
+
+agent:
+  resume: false
+  logger: "wandb"
+  wandb_project: "mjlab-g1-ablation"
+  wandb_tags: ["adaptive-motion", "robustness"]
+  upload_model: false
+  save_interval: 1000
+
+video: true
+video_length: 400
+video_interval: 1000
+enable_nan_guard: true

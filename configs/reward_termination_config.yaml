@@ -1,0 +1,79 @@
+env:
+  rewards:
+    motion_global_root_pos:
+      weight: 0.75
+      params:
+        std: 0.25
+
+    motion_global_root_ori:
+      weight: 0.75
+      params:
+        std: 0.35
+
+    motion_body_pos:
+      weight: 1.5
+      params:
+        std: 0.25
+
+    motion_body_ori:
+      weight: 1.25
+      params:
+        std: 0.35
+
+    motion_body_lin_vel:
+      weight: 1.0
+      params:
+        std: 0.75
+
+    motion_body_ang_vel:
+      weight: 1.0
+      params:
+        std: 2.5
+
+    action_rate_l2:
+      weight: -0.05
+
+    joint_limit:
+      weight: -20.0
+
+    self_collisions:
+      weight: -15.0
+      params:
+        force_threshold: 5.0
+
+  terminations:
+    anchor_pos:
+      params:
+        threshold: 0.20
+
+    anchor_ori:
+      params:
+        threshold: 0.65
+
+    ee_body_pos:
+      params:
+        threshold: 0.20
+
+  events:
+    push_robot:
+      interval_range_s: [0.5, 1.5]
+      params:
+        velocity_range:
+          x: [-1.0, 1.0]
+          y: [-1.0, 1.0]
+          z: [-0.2, 0.2]
+          roll: [-0.52, 0.52]
+          pitch: [-0.52, 0.52]
+          yaw: [-0.78, 0.78]
+
+    base_com:
+      params:
+        ranges:
+          0: [-0.04, 0.04]
+          1: [-0.06, 0.06]
+          2: [-0.06, 0.06]
+
+    foot_friction:
+      params:
+        ranges: [0.25, 1.35]
+        shared_random: true

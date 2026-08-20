@@ -1,0 +1,30 @@
+agent:
+  seed: 123
+  num_steps_per_env: 32
+  max_iterations: 5000
+  save_interval: 250
+  run_name: "ppo_longer_rollout"
+
+  actor:
+    hidden_dims: [768, 384, 192]
+    activation: "elu"
+    obs_normalization: true
+
+  critic:
+    hidden_dims: [768, 384, 192]
+    activation: "elu"
+    obs_normalization: true
+
+  algorithm:
+    num_learning_epochs: 8
+    num_mini_batches: 8
+    learning_rate: 0.0003
+    schedule: "adaptive"
+    gamma: 0.995
+    lam: 0.95
+    entropy_coef: 0.001
+    desired_kl: 0.01
+    max_grad_norm: 1.0
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2

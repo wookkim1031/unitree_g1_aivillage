@@ -1,0 +1,52 @@
+env:
+  observations:
+    actor:
+      enable_corruption: true
+      terms:
+        motion_anchor_ori_b:
+          noise:
+            n_min: -0.02
+            n_max: 0.02
+
+        base_ang_vel:
+          noise:
+            n_min: -0.10
+            n_max: 0.10
+
+        joint_pos:
+          noise:
+            n_min: -0.005
+            n_max: 0.005
+
+        joint_vel:
+          noise:
+            n_min: -0.25
+            n_max: 0.25
+
+    critic:
+      enable_corruption: false
+
+  actions:
+    joint_pos:
+      clip: 1.0
+      scale:
+        ".*_elbow_joint": 0.30
+        ".*_shoulder_pitch_joint": 0.40
+        ".*_shoulder_roll_joint": 0.40
+        ".*_hip_pitch_joint": 0.50
+        ".*_hip_yaw_joint": 0.50
+        ".*_hip_roll_joint": 0.32
+        ".*_knee_joint": 0.32
+        ".*_ankle_pitch_joint": 0.35
+        ".*_ankle_roll_joint": 0.35
+        ".*_wrist_pitch_joint": 0.06
+        ".*_wrist_yaw_joint": 0.06
+
+agent:
+  actor:
+    obs_normalization: true
+    hidden_dims: [1024, 512, 256]
+
+  critic:
+    obs_normalization: true
+    hidden_dims: [1024, 512, 256]

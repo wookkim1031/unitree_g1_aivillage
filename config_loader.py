@@ -1,328 +1,346 @@
-"""Load, decode, and override typed JSON configuration trees.
-
-The companion JSON file stores constructor-like objects using this format:
-
-    {"__class__": "ClassName", "args": {"field": value}}
-
-Tuples, slices, enum values, callables, and dictionaries with non-string keys
-are tagged so their Python types survive a JSON round trip.
-
-Without registries, load_config_json returns ConfigNode/CallableRef/EnumRef
-objects. To instantiate the actual project configuration classes, pass maps
-from the names in the JSON to the imported classes/functions/enums.
-"""
-
 from __future__ import annotations
 
 import copy
 import importlib
-import json
-from dataclasses import dataclass, field
+import numbers
+from collections.abc import Mapping, MutableMapping
+from dataclasses import is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
+
+import yaml
+from utils import TrainConfig
 
 
-@dataclass(frozen=True)
-class CallableRef:
-    """A callable name that could not be resolved from a callable registry."""
-
-    name: str
+def _format_path(path: tuple[object, ...]) -> str:
+    return ".".join(str(part) for part in path) or "<root>"
 
 
-@dataclass(frozen=True)
-class EnumRef:
-    """An enum value that could not be resolved from an enum registry."""
-
-    type_name: str
-    name: str
-    value: Any
-
-
-@dataclass(frozen=True)
-class SliceRef:
-    """A slice retained as a value when decoding without a project class."""
-
-    start: Any = None
-    stop: Any = None
-    step: Any = None
-
-    def to_slice(self) -> slice:
-        return slice(self.start, self.stop, self.step)
+def _is_config_object(value: Any) -> bool:
+    """Return True for nested config objects, but not for mappings or callables."""
+    return (
+        not isinstance(value, (str, bytes, Path, Enum, Mapping))
+        and not callable(value)
+        and (is_dataclass(value) or hasattr(value, "__dict__"))
+    )
 
 
-@dataclass
-class ConfigNode:
-    """Fallback representation for a typed config with no registered class."""
-
-    type_name: str
-    fields: dict[str, Any] = field(default_factory=dict)
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self.fields[name]
-        except KeyError as exc:
-            raise AttributeError(name) from exc
-
-    def __getitem__(self, name: str) -> Any:
-        return self.fields[name]
-
-    def __repr__(self) -> str:
-        return f"{self.type_name}({self.fields!r})"
-
-
-def _import_symbol(path: str) -> Any:
-    """Resolve a dotted path such as ``package.module:Symbol``."""
-    if ":" in path:
-        module_name, symbol_name = path.split(":", 1)
-    else:
-        module_name, separator, symbol_name = path.rpartition(".")
-        if not separator:
-            raise ValueError(f"Cannot import symbol without a module path: {path!r}")
-    module = importlib.import_module(module_name)
-    return getattr(module, symbol_name)
-
-
-def _lookup(registry: Mapping[str, Any] | None, key: str) -> Any | None:
-    if not registry or key not in registry:
-        return None
-    value = registry[key]
-    return _import_symbol(value) if isinstance(value, str) else value
-
-
-def decode_config_value(
-    value: Any,
-    *,
-    class_registry: Mapping[str, Any] | None = None,
-    callable_registry: Mapping[str, Any] | None = None,
-    enum_registry: Mapping[str, Any] | None = None,
-) -> Any:
-    """Decode one value from the tagged JSON representation."""
-    if isinstance(value, list):
-        return [
-            decode_config_value(
-                item,
-                class_registry=class_registry,
-                callable_registry=callable_registry,
-                enum_registry=enum_registry,
-            )
-            for item in value
-        ]
-
-    if not isinstance(value, dict):
-        return value
-
-    if "__tuple__" in value:
-        return tuple(
-            decode_config_value(
-                item,
-                class_registry=class_registry,
-                callable_registry=callable_registry,
-                enum_registry=enum_registry,
-            )
-            for item in value["__tuple__"]
-        )
-
-    if "__slice__" in value:
-        start, stop, step = value["__slice__"]
-        decoded = [
-            decode_config_value(
-                item,
-                class_registry=class_registry,
-                callable_registry=callable_registry,
-                enum_registry=enum_registry,
-            )
-            for item in (start, stop, step)
-        ]
-        return slice(*decoded)
-
-    if "__callable__" in value:
-        name = value["__callable__"]
-        resolved = _lookup(callable_registry, name)
-        return resolved if resolved is not None else CallableRef(name)
-
-    if "__enum__" in value:
-        enum_info = value["__enum__"]
-        type_name = enum_info["type"]
-        member_name = enum_info["name"]
-        enum_cls = _lookup(enum_registry, type_name)
-        if enum_cls is not None:
-            if issubclass(enum_cls, Enum):
-                try:
-                    return enum_cls[member_name]
-                except KeyError:
-                    return enum_cls(enum_info["value"])
-        return EnumRef(type_name, member_name, enum_info.get("value"))
-
-    if "__dict__" in value:
+def _copy_untyped(value: Any) -> Any:
+    """Copy values inserted into previously empty dictionaries."""
+    if isinstance(value, Mapping):
         return {
-            decode_config_value(
-                key,
-                class_registry=class_registry,
-                callable_registry=callable_registry,
-                enum_registry=enum_registry,
-            ): decode_config_value(
-                item,
-                class_registry=class_registry,
-                callable_registry=callable_registry,
-                enum_registry=enum_registry,
-            )
-            for key, item in value["__dict__"]
+            copy.deepcopy(key): _copy_untyped(item)
+            for key, item in value.items()
         }
 
-    if "__class__" in value:
-        type_name = value["__class__"]
-        args = decode_config_value(
-            value.get("args", {}),
-            class_registry=class_registry,
-            callable_registry=callable_registry,
-            enum_registry=enum_registry,
-        )
-        cls = _lookup(class_registry, type_name)
-        if cls is not None:
-            if isinstance(args, dict):
-                return cls(**args)
-            return cls(args)
-        return ConfigNode(type_name=type_name, fields=args)
+    if isinstance(value, list):
+        return [_copy_untyped(item) for item in value]
 
-    return {
-        key: decode_config_value(
-            item,
-            class_registry=class_registry,
-            callable_registry=callable_registry,
-            enum_registry=enum_registry,
-        )
-        for key, item in value.items()
-    }
+    if isinstance(value, tuple):
+        return tuple(_copy_untyped(item) for item in value)
+
+    return copy.deepcopy(value)
 
 
-def load_config_json(
-    path: str | Path,
-    *,
-    class_registry: Mapping[str, Any] | None = None,
-    callable_registry: Mapping[str, Any] | None = None,
-    enum_registry: Mapping[str, Any] | None = None,
-) -> Any:
-    """Load one JSON configuration file and decode its tagged values."""
-    with Path(path).open("r", encoding="utf-8") as handle:
-        raw = json.load(handle)
-    return decode_config_value(
-        raw,
-        class_registry=class_registry,
-        callable_registry=callable_registry,
-        enum_registry=enum_registry,
-    )
-
-
-def _merge_raw(base: Any, override: Any) -> Any:
-    """Recursively merge mappings; lists and tagged scalar values are replaced.
-
-    Typed nodes accept both a typed override (``{"args": {...}}``) and a
-    concise override (``{"field": value}``).
+def _load_symbol(spec: str) -> Any:
     """
-    if not isinstance(base, dict) or not isinstance(override, dict):
-        return copy.deepcopy(override)
+    Load a callable from a YAML string such as:
 
-    # Tagged values represent atomic Python values. Replace them as a whole.
-    tagged_keys = {"__tuple__", "__slice__", "__callable__", "__enum__", "__dict__"}
-    if tagged_keys.intersection(base) or tagged_keys.intersection(override):
-        return copy.deepcopy(override)
+        my_package.rewards:custom_reward
+    """
+    if not isinstance(spec, str) or ":" not in spec:
+        raise TypeError(
+            "Callable overrides must use 'module.path:attribute', "
+            f"got {spec!r}"
+        )
 
-    # A typed config node is merged through its args payload. This is what
-    # makes both forms below work at every nesting level:
-    #   {"args": {"agent": {"args": {"...": ...}}}}
-    #   {"agent": {"...": ...}}
-    if "__class__" in base:
-        if "__class__" in override and override["__class__"] != base["__class__"]:
-            return copy.deepcopy(override)
+    module_name, attribute_path = spec.split(":", 1)
+    value = importlib.import_module(module_name)
 
-        if "args" in override:
-            override_args = override["args"]
-            extra_fields = {
-                key: value
-                for key, value in override.items()
-                if key not in {"__class__", "args"}
-            }
-            if extra_fields:
-                override_args = _merge_raw(override_args, extra_fields)
+    for attribute in attribute_path.split("."):
+        value = getattr(value, attribute)
+
+    if not callable(value):
+        raise TypeError(f"Resolved YAML symbol is not callable: {spec!r}")
+
+    return value
+
+
+def _coerce_like(
+    incoming: Any,
+    current: Any,
+    path: tuple[object, ...],
+) -> Any:
+    """
+    Convert YAML values to the same broad container/type shape as the
+    existing configuration value.
+    """
+    field_path = _format_path(path)
+
+    # Explicit null is allowed for optional fields such as cnn_cfg,
+    # terrain_generator, frictionloss, etc.
+    if incoming is None:
+        return None
+
+    # Function fields can be overridden with "module:attribute".
+    if callable(current):
+        return _load_symbol(incoming)
+
+    # Nested config object assigned as a complete mapping.
+    if _is_config_object(current):
+        if not isinstance(incoming, Mapping):
+            raise TypeError(
+                f"{field_path} must be a mapping when overriding a config object"
+            )
+
+        result = copy.deepcopy(current)
+        return _merge_object(result, incoming, path)
+
+    # Enum values may be written either by enum value or enum member name.
+    if isinstance(current, Enum):
+        if not isinstance(incoming, str):
+            raise TypeError(f"{field_path} must be a string enum value")
+
+        enum_type = type(current)
+
+        try:
+            return enum_type(incoming)
+        except ValueError:
+            try:
+                return enum_type[incoming]
+            except KeyError as exc:
+                valid = [member.name for member in enum_type]
+                raise ValueError(
+                    f"Invalid value {incoming!r} for {field_path}. "
+                    f"Expected one of: {valid}"
+                ) from exc
+
+    # Preserve tuple-valued configuration fields.
+    if isinstance(current, tuple):
+        if not isinstance(incoming, (list, tuple)):
+            raise TypeError(f"{field_path} must be a YAML sequence")
+
+        incoming_values = list(incoming)
+
+        # For fixed-size tuples, coerce each position using the existing
+        # element type when possible.
+        if len(current) == len(incoming_values):
+            return tuple(
+                _coerce_like(value, old_value, path + (index,))
+                for index, (value, old_value) in enumerate(
+                    zip(incoming_values, current)
+                )
+            )
+
+        # For homogeneous tuples such as (0.3, 1.2), use the first
+        # element as the type template.
+        if len(current) == 1:
+            return tuple(
+                _coerce_like(value, current[0], path + (index,))
+                for index, value in enumerate(incoming_values)
+            )
+
+        return tuple(copy.deepcopy(incoming_values))
+
+    # Preserve list-valued fields such as gpu_ids and wandb_tags.
+    if isinstance(current, list):
+        if not isinstance(incoming, (list, tuple)):
+            raise TypeError(f"{field_path} must be a YAML sequence")
+
+        if current:
+            return [
+                _coerce_like(value, current[0], path + (index,))
+                for index, value in enumerate(incoming)
+            ]
+
+        return [_copy_untyped(value) for value in incoming]
+
+    # Recursively merge dictionary-valued fields.
+    if isinstance(current, Mapping):
+        if not isinstance(incoming, Mapping):
+            raise TypeError(f"{field_path} must be a YAML mapping")
+
+        result = copy.deepcopy(current)
+
+        if not isinstance(result, MutableMapping):
+            result = dict(result)
+
+        return _merge_mapping(result, incoming, path)
+
+    # Handle common scalar types and catch accidental type mistakes.
+    if isinstance(current, bool):
+        if not isinstance(incoming, bool):
+            raise TypeError(f"{field_path} must be a boolean")
+        return incoming
+
+    if isinstance(current, int) and not isinstance(current, bool):
+        if (
+            isinstance(incoming, numbers.Real)
+            and not isinstance(incoming, bool)
+            and float(incoming).is_integer()
+        ):
+            return int(incoming)
+
+        raise TypeError(f"{field_path} must be an integer")
+
+    if isinstance(current, float):
+        if isinstance(incoming, numbers.Real) and not isinstance(incoming, bool):
+            return float(incoming)
+
+        raise TypeError(f"{field_path} must be numeric")
+
+    if isinstance(current, str):
+        if not isinstance(incoming, str):
+            raise TypeError(f"{field_path} must be a string")
+        return incoming
+
+    if isinstance(current, Path):
+        if not isinstance(incoming, str):
+            raise TypeError(f"{field_path} must be a path string")
+        return Path(incoming)
+
+    # For fields whose current value is None or a custom scalar type,
+    # retain the YAML value.
+    return copy.deepcopy(incoming)
+
+
+def _merge_mapping(
+    target: MutableMapping[Any, Any],
+    patch: Mapping[Any, Any],
+    path: tuple[object, ...],
+) -> MutableMapping[Any, Any]:
+    """
+    Recursively update a dictionary.
+
+    Unknown keys are rejected in non-empty dictionaries. Empty dictionaries
+    such as curriculum, metrics, and recorders may receive new entries.
+    """
+    for key, incoming in patch.items():
+        key_path = path + (key,)
+
+        if key not in target:
+            # Empty maps are extension points in the supplied config.
+            if len(target) == 0:
+                target[key] = _copy_untyped(incoming)
+                continue
+
+            raise KeyError(
+                f"Unknown YAML key: {_format_path(key_path)}"
+            )
+
+        current = target[key]
+
+        if isinstance(incoming, Mapping) and _is_config_object(current):
+            _merge_object(current, incoming, key_path)
+
+        elif isinstance(incoming, Mapping) and isinstance(current, Mapping):
+            updated = _merge_mapping(
+                copy.deepcopy(current),
+                incoming,
+                key_path,
+            )
+            target[key] = updated
+
         else:
-            override_args = {
-                key: value for key, value in override.items() if key != "__class__"
-            }
+            target[key] = _coerce_like(
+                incoming,
+                current,
+                key_path,
+            )
 
-        result = copy.deepcopy(base)
-        result["args"] = _merge_raw(base.get("args", {}), override_args)
-        return result
-
-    # Replacing a plain node with a typed node is intentional.
-    if "__class__" in override:
-        return copy.deepcopy(override)
-
-    result = copy.deepcopy(base)
-    for key, value in override.items():
-        result[key] = _merge_raw(result[key], value) if key in result else copy.deepcopy(value)
-    return result
+    return target
 
 
-def merge_config_data(base_data: Any, override_data: Any) -> Any:
-    """Return a merged raw JSON tree without mutating either input tree."""
-    return _merge_raw(base_data, override_data)
-
-
-def load_config_pair(
-    baseline_path: str | Path,
-    override_path: str | Path,
-    *,
-    output_path: str | Path | None = None,
-    class_registry: Mapping[str, Any] | None = None,
-    callable_registry: Mapping[str, Any] | None = None,
-    enum_registry: Mapping[str, Any] | None = None,
+def _merge_object(
+    target: Any,
+    patch: Mapping[str, Any],
+    path: tuple[object, ...],
 ) -> Any:
-    """Load baseline + override JSON, optionally save the merged JSON, then decode it.
+    """Recursively apply a YAML mapping to a config object."""
+    if not isinstance(patch, Mapping):
+        raise TypeError(
+            f"{_format_path(path)} must be a YAML mapping"
+        )
 
-    The override file can contain only the fields that should change. For a
-    typed root, either of these forms is valid:
+    for key, incoming in patch.items():
+        if not isinstance(key, str):
+            raise TypeError(
+                f"Object field names must be strings; "
+                f"got {key!r} at {_format_path(path)}"
+            )
 
-        {"args": {"agent": {"args": {"algorithm": {"args": {"learning_rate": 0.0003}}}}}}
+        key_path = path + (key,)
 
-    or, more conveniently, a partial tree without type wrappers:
+        if not hasattr(target, key):
+            raise KeyError(
+                f"Unknown YAML key: {_format_path(key_path)}"
+            )
 
-        {"agent": {"algorithm": {"learning_rate": 0.0003}}}
+        current = getattr(target, key)
 
-    Lists and tagged values, such as tuples, replace the corresponding baseline
-    value rather than merging element by element.
+        if isinstance(incoming, Mapping) and _is_config_object(current):
+            _merge_object(current, incoming, key_path)
+
+        elif isinstance(incoming, Mapping) and isinstance(current, Mapping):
+            updated = _merge_mapping(
+                copy.deepcopy(current),
+                incoming,
+                key_path,
+            )
+            setattr(target, key, updated)
+
+        else:
+            setattr(
+                target,
+                key,
+                _coerce_like(incoming, current, key_path),
+            )
+
+    return target
+
+
+def load_and_overwrite_train_config(t: TrainConfig, p: Path) -> TrainConfig:
     """
-    with Path(baseline_path).open("r", encoding="utf-8") as handle:
-        baseline = json.load(handle)
-    with Path(override_path).open("r", encoding="utf-8") as handle:
-        override = json.load(handle)
+    Load a partial YAML configuration and apply it to a TrainConfig.
 
-    merged = merge_config_data(baseline, override)
-    if output_path is not None:
-        with Path(output_path).open("w", encoding="utf-8") as handle:
-            json.dump(merged, handle, indent=2)
-            handle.write("\n")
+    Parameters
+    ----------
+    t:
+        Existing base configuration.
+    p:
+        Path to a YAML override file.
 
-    return decode_config_value(
-        merged,
-        class_registry=class_registry,
-        callable_registry=callable_registry,
-        enum_registry=enum_registry,
-    )
+    Returns
+    -------
+    TrainConfig
+        A deep-copied configuration with YAML values applied.
 
+    Notes
+    -----
+    - The input configuration is not mutated.
+    - YAML paths follow the Python attribute hierarchy.
+    - Missing YAML fields retain their original values.
+    - Unknown fields raise KeyError.
+    - Tuples are written as YAML lists and converted back to tuples.
+    """
+    p = Path(p)
 
-# A descriptive alias for callers who prefer an explicit function name.
-load_baseline_with_overrides = load_config_pair
+    if not p.is_file():
+        raise FileNotFoundError(f"YAML configuration not found: {p}")
 
+    with p.open("r", encoding="utf-8") as file:
+        patch = yaml.safe_load(file)
 
-__all__ = [
-    "CallableRef",
-    "ConfigNode",
-    "EnumRef",
-    "SliceRef",
-    "decode_config_value",
-    "load_config_json",
-    "merge_config_data",
-    "load_config_pair",
-    "load_baseline_with_overrides",
-]
+    if patch is None:
+        patch = {}
+
+    if not isinstance(patch, Mapping):
+        raise TypeError(
+            f"The YAML root must be a mapping, got {type(patch).__name__}"
+        )
+
+    result = copy.deepcopy(t)
+    _merge_object(result, patch, ())
+
+    return result

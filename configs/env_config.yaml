@@ -1,0 +1,28 @@
+env:
+  decimation: 2
+  episode_length_s: 8.0
+  is_finite_horizon: true
+  auto_reset: true
+  scale_rewards_by_dt: true
+
+  scene:
+    num_envs: 8192
+    env_spacing: 1.5
+    max_init_terrain_level: 3
+
+  entities:
+    robot:
+      init_state:
+        pos: [0.0, 0.0, 0.80]
+        joint_pos:
+          ".*_hip_pitch_joint": -0.30
+          ".*_knee_joint": 0.72
+
+  sim:
+    nconmax: 64
+    contact_sensor_maxmatch: 128
+    mujoco:
+      timestep: 0.0025
+      integrator: "implicitfast"
+      iterations: 15
+      tolerance: 1.0e-8
