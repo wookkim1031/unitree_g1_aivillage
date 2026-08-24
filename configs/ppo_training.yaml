@@ -1,6 +1,9 @@
 agent:
   seed: 123
   num_steps_per_env: 32
+  experiment_name: g1_tracking 
+  logger: tensorboard
+  upload_model: false
   max_iterations: 5000
   save_interval: 250
   run_name: "ppo_longer_rollout"

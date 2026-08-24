@@ -22,6 +22,5 @@ def main():
 
     utils.launch_training(task_id=TASK, args=config)
 
-
 if __name__ == "__main__":
     main()
