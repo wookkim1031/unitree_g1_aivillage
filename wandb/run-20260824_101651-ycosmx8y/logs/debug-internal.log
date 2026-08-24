@@ -1,0 +1,18 @@
+{"time":"2026-08-24T10:16:51.930691932Z","level":"INFO","msg":"wandb-core"}
+{"time":"2026-08-24T10:16:51.930859887Z","level":"INFO","msg":"stream: starting","core version":"0.28.2"}
+{"time":"2026-08-24T10:16:52.034483194Z","level":"INFO","msg":"stream: created new stream","id":"ycosmx8y"}
+{"time":"2026-08-24T10:16:52.034545499Z","level":"INFO","msg":"handler: started"}
+{"time":"2026-08-24T10:16:52.034575945Z","level":"INFO","msg":"stream: started"}
+{"time":"2026-08-24T10:16:52.034587012Z","level":"INFO","msg":"writer: started","stream_id":"ycosmx8y"}
+{"time":"2026-08-24T10:16:52.03461873Z","level":"INFO","msg":"sender: started"}
+{"time":"2026-08-24T10:16:52.531129735Z","level":"ERROR","msg":"api: HTTP error","status":401,"method":"POST","url":"https://api.wandb.ai/graphql"}
+{"time":"2026-08-24T10:16:52.531225451Z","level":"ERROR","msg":"runupserter: failed to init run","error":"returned error 401: {\"data\":{\"upsertBucket\":null},\"errors\":[{\"message\":\"user is not logged in\",\"path\":[\"upsertBucket\"],\"extensions\":{\"code\":\"PERMISSION_ERROR\"}}]}"}
+{"time":"2026-08-24T10:16:52.537485375Z","level":"ERROR","msg":"sender: uploadConfigFile: runhandle: run not yet initialized"}
+{"time":"2026-08-24T10:16:52.53844857Z","level":"ERROR","msg":"runfiles: runhandle: run not yet initialized"}
+{"time":"2026-08-24T10:16:52.538840086Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2026-08-24T10:16:52.538929222Z","level":"INFO","msg":"stream: finishing up"}
+{"time":"2026-08-24T10:16:52.538937204Z","level":"INFO","msg":"handler: closed"}
+{"time":"2026-08-24T10:16:52.538970284Z","level":"INFO","msg":"sender: closed"}
+{"time":"2026-08-24T10:16:52.538974981Z","level":"INFO","msg":"stream: all finished"}
+{"time":"2026-08-24T10:16:54.539804702Z","level":"ERROR","msg":"stream: failed to shut down analytics","error":"shutdown errors: [failed to upload metrics: failed to send metrics to https://api.wandb.ai/sdk/otel/v1/metrics: 401 Unauthorized (body: {\"error\":\"invalid API key\"}) context deadline exceeded]"}
+{"time":"2026-08-24T10:16:54.547031246Z","level":"ERROR","msg":"stream: runURL: runhandle: run not yet initialized"}

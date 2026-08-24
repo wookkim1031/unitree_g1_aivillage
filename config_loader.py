@@ -9,6 +9,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from typing import TYPE_CHECKING, Any, TypeVar
+
+if TYPE_CHECKING:
+    from utils import PlayConfig, TrainConfig
+
+C = TypeVar("C")
+
 import yaml
 from utils import TrainConfig
 
@@ -300,9 +307,8 @@ def _merge_object(
     return target
 
 
-def load_and_overwrite_train_config(t: TrainConfig, p: Path) -> TrainConfig:
-    """
-    Load a partial YAML configuration and apply it to a TrainConfig.
+def load_and_overwrite_config(t: C, p: Path) -> C:
+    """Load a partial YAML configuration and apply it to a config object.
 
     Parameters
     ----------
@@ -344,3 +350,12 @@ def load_and_overwrite_train_config(t: TrainConfig, p: Path) -> TrainConfig:
     _merge_object(result, patch, ())
 
     return result
+
+def load_and_overwrite_train_config(t: TrainConfig, p: Path) -> TrainConfig:
+    """Apply a partial YAML override to a TrainConfig."""
+    return load_and_overwrite_config(t, p)
+
+
+def load_and_overwrite_play_config(t: PlayConfig, p: Path) -> PlayConfig:
+    """Apply a partial YAML override to a PlayConfig."""
+    return load_and_overwrite_config(t, p)

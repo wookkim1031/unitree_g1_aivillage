@@ -1,0 +1,9 @@
+agent: trained
+checkpoint_file: logs/rsl_rl/g1_tracking/2026-08-24_10-18-29_ft_walk_small_from_2999/model_5998.pt
+motion_file: /opt/nb/johan/data/motion_file/phuma_g1_v2/LocoMuJoCo/walk_chunk_0000.npz
+num_envs: 4
+device: cuda:0
+viewer: auto
+video: true
+video_length: 2000
+no_terminations: false
