@@ -37,5 +37,5 @@ env:
     num_envs: 4096
   commands:
     motion:
-      split_file: /opt/nb/johan/data/motion_file/phuma_track_v2.split.json
+      split_file: /opt/nb/johan/data/motion_file/phuma_track_cs900.split.json
       split: train

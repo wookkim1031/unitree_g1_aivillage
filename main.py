@@ -15,7 +15,7 @@ def main():
     # config.agent.load_run = "2026-08-16_15-11-36"
     # config.agent.load_checkpoint = "model_2999.pt"
     config.agent.run_name =  "multiclip_smoke"
-    config.motion_file = "/opt/nb/johan/data/motion_file/phuma_track_v2.npz"
+    config.motion_file = "/opt/nb/johan/data/motion_file/phuma_track_cs900.npz"
     config.video = False
     # config.video_length = 200
     # config.video_interval = 2000

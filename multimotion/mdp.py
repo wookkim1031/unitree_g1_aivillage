@@ -81,7 +81,6 @@ class MultiMotionCommand(MotionCommand):
         if self.cfg.random_start_phase:
           span = (self.clip_lengths[clip] - self.cfg.min_remaining_frames).clamp(min=1)
           phase = (torch.rand(n, device=self.device) * span.float()).long().clamp(max=span - 1)
-          self.time_steps[env_ids] = self.clip_starts[clip] + phase
         else:
         # Always start from beginning of a clip
           phase = torch.zeros(n, dtype=torch.long, device=self.device)
