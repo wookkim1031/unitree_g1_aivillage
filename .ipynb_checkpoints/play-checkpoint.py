@@ -27,6 +27,8 @@ Everything else 160-dim actor obs
 TASK = "Mjlab-Tracking-Flat-Unitree-G1-No-State-Estimation"
 config = utils.PlayConfig(TASK)
 
-config = config_loader.load_and_overwrite_train_config(config, Path("configs/play_config.yaml"))
+config = config_loader.load_and_overwrite_play_config(
+    config, Path(__file__).resolve().parent / "configs/play_config.yaml")
+
 print(config)
 utils.run_play(task_id=TASK, cfg=config)

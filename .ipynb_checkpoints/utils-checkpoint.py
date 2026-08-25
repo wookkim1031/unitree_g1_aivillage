@@ -173,12 +173,11 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
 def launch_training(task_id: str, args: TrainConfig | None = None):
 
     # Create log directory once before launching workers.
-    log_root_path = Path("logs") / "rsl_rl" / args.agent.experiment_name
-    log_root_path.resolve()
+    log_root_path = (Path("logs") / "rsl_rl" / args.agent.experiment_name).resolve()
     log_dir_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if args.agent.run_name:
         log_dir_name += f"_{args.agent.run_name}"
-        log_dir = log_root_path / log_dir_name
+    log_dir = log_root_path / log_dir_name
     
     # Select GPUs based on CUDA_VISIBLE_DEVICES and user specification.
     selected_gpus, num_gpus = select_gpus(args.gpu_ids)
@@ -196,27 +195,27 @@ def launch_training(task_id: str, args: TrainConfig | None = None):
     else:
     # Multi-GPU: use torchrunx.
         import torchrunx
-    
-    # torchrunx redirects stdout to logging.
-    logging.basicConfig(level=logging.INFO)
-    
-    # Configure torchrunx logging directory.
-    # Priority: 1) existing env var, 2) user flag, 3) default to {log_dir}/torchrunx.
-    if "TORCHRUNX_LOG_DIR" not in os.environ:
-        if args.torchrunx_log_dir is not None:
-        # User specified a value via flag (could be "" to disable).
-            os.environ["TORCHRUNX_LOG_DIR"] = args.torchrunx_log_dir
-    else:
-        # Default: put logs in training directory.
-        os.environ["TORCHRUNX_LOG_DIR"] = str(log_dir / "torchrunx")
-    
-    print(f"[INFO] Launching training with {num_gpus} GPUs", flush=True)
-    torchrunx.Launcher(
-      hostnames=["localhost"],
-      workers_per_host=num_gpus,
-      backend=None,  # Let rsl_rl handle process group initialization.
-      copy_env_vars=torchrunx.DEFAULT_ENV_VARS_FOR_COPY + ("MUJOCO*",),
-    ).run(run_train, task_id, args, log_dir)
+        
+        # torchrunx redirects stdout to logging.
+        logging.basicConfig(level=logging.INFO)
+        
+        # Configure torchrunx logging directory.
+        # Priority: 1) existing env var, 2) user flag, 3) default to {log_dir}/torchrunx.
+        if "TORCHRUNX_LOG_DIR" not in os.environ:
+            if args.torchrunx_log_dir is not None:
+            # User specified a value via flag (could be "" to disable).
+                os.environ["TORCHRUNX_LOG_DIR"] = args.torchrunx_log_dir
+        else:
+            # Default: put logs in training directory.
+            os.environ["TORCHRUNX_LOG_DIR"] = str(log_dir / "torchrunx")
+        
+        print(f"[INFO] Launching training with {num_gpus} GPUs", flush=True)
+        torchrunx.Launcher(
+          hostnames=["localhost"],
+          workers_per_host=num_gpus,
+          backend=None,  # Let rsl_rl handle process group initialization.
+          copy_env_vars=torchrunx.DEFAULT_ENV_VARS_FOR_COPY + ("MUJOCO*",),
+        ).run(run_train, task_id, args, log_dir)
 
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
@@ -264,6 +263,7 @@ def run_play(task_id: str, cfg: PlayConfig):
           "  --motion-file /path/to/motion.npz (local file)\n"
           "  --registry-name your-org/motions/motion-name (download from WandB)"
         )
+          
   log_dir: Path | None = None
   resume_path: Path | None = None
   if TRAINED_MODE:
