@@ -67,4 +67,6 @@ def make_multiclip_cfg(s: MultiClipSettings = MultiClipSettings(),
   cfg.rewards["motion_global_root_pos"].weight = s.w_root_pos
   cfg.rewards["action_rate_l2"].weight = s.w_action_rate
 
+  cfg.episode_length_s = 40.0
+
   return cfg

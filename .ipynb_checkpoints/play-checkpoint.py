@@ -7,6 +7,7 @@ from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_run
 import utils
 import config_loader
 from pathlib import Path
+import multimotion 
 
 """
 No-State-Estimation drops "motion_anchor_pos_b" and "base_lin_vel" from the actor group 
@@ -29,6 +30,7 @@ config = utils.PlayConfig(TASK)
 
 config = config_loader.load_and_overwrite_play_config(
     config, Path(__file__).resolve().parent / "configs/play_config.yaml")
+ 
 
 print(config)
 utils.run_play(task_id=TASK, cfg=config)

@@ -6,6 +6,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+import torch
 from typing import Literal, cast
 
 from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
@@ -336,6 +337,12 @@ def run_play(task_id: str, cfg: PlayConfig):
       policy = PolicyRandom()
   else:
     runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
+    # Reading actor and critic width from the checkpoint rather than guessing
+    sd = torch.load(str(resume_path), map_location="cpu")["actor_state_dict"]
+    dims = [sd[k].shape[0] for k in sorted(sd) if k.endswith("weight")][:-1]
+    agent_cfg.actor.hidden_dims = dims
+    agent_cfg.critic.hidden_dims = dims
+    print(f"[play] obs {sd['mlp.0.weight'].shape[1]}, dims {dims}")
     runner = runner_cls(env, asdict(agent_cfg), device=device)
     runner.load(
       str(resume_path), load_cfg={"actor": True}, strict=True, map_location=device
