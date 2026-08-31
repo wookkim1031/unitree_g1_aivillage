@@ -1,23 +1,27 @@
 agent:
   seed: 123
-  num_steps_per_env: 32
+  num_steps_per_env: 24
+  experiment_name: g1_multiclip 
+  logger: wandb
+  run_name: multiclip_smoke
+  upload_model: false
   max_iterations: 5000
-  save_interval: 250
-  run_name: "ppo_longer_rollout"
+  save_interval: 5000
+  run_name: multiclip_smoke
 
   actor:
-    hidden_dims: [768, 384, 192]
+    hidden_dims: [1024, 512, 256]
     activation: "elu"
     obs_normalization: true
 
   critic:
-    hidden_dims: [768, 384, 192]
+    hidden_dims: [1024, 512, 256]
     activation: "elu"
     obs_normalization: true
 
   algorithm:
-    num_learning_epochs: 8
-    num_mini_batches: 8
+    num_learning_epochs: 5
+    num_mini_batches: 4
     learning_rate: 0.0003
     schedule: "adaptive"
     gamma: 0.995
@@ -28,3 +32,26 @@ agent:
     value_loss_coef: 1.0
     use_clipped_value_loss: true
     clip_param: 0.2
+    
+env:
+  scene:
+    num_envs: 4096
+  commands:
+    motion:
+      split_file: /opt/nb/johan/data/motion_file/phuma_track_cs900.split.json
+      split: train
+      min_clip_frames: 150
+
+motion_file: /opt/nb/johan/data/motion_file/phuma_track_cs900.npz
+
+dynamic_sampling:
+  enabled: true
+  sweep_every: 500
+  warmup_iters: 2000
+  max_sweep_frames: 500
+  sweep_num_envs: 512
+  dev_threshold: 0.5
+  success_decay: 0.9
+  failure_boost: 1.4
+  w_min: 0.1
+  w_max: 10.0

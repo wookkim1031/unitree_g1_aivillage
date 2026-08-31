@@ -1,0 +1,29 @@
+checkpoint_file: /opt/nb/unitree_g1_aivillage/logs/rsl_rl/g1_multiclip/2026-08-29_19-07-03_baseline_no_dynsample/model_29999.pt
+motion_file: /opt/nb/johan/data/motion_file/phuma_track_cs900.npz
+split_file: /opt/nb/johan/data/motion_file/phuma_track_cs900.split.json
+ 
+split: test
+out_csv: eval_cs900_test.csv
+device: cuda:0
+ 
+# null -> longest clip in the split. 900 source frames at 30 fps resampled to
+# the 50 Hz control rate is 1500 steps, so expect a long rollout.
+max_steps: null
+ 
+# Must match whatever the earlier evaluations used, or the numbers cannot be
+# compared against the existing 82.4% / 31.3% figures.
+succ_threshold: 0.5
+ 
+# Leave failure terminations on: without them a fallen robot keeps integrating
+# until the contact solver produces NaN.
+keep_terminations: true
+ 
+# null -> one env per test clip, exhaustive coverage.
+num_envs: null
+ 
+metric_keys:
+  - error_joint_pos
+  - error_body_pos
+  - error_anchor_pos
+  - error_anchor_rot
+  - error_joint_vel

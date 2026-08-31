@@ -1,0 +1,9 @@
+agent: trained
+checkpoint_file: /opt/nb/unitree_g1_aivillage/logs/rsl_rl/g1_tracking/2026-08-20_15-56-30_ft_walk_small_from_2999/model_4999.pt
+motion_file: /opt/nb/johan/data/motion_file/phuma_g1_cs900_npz/LocoMuJoCo/walk_chunk_0001.npz
+num_envs: 4
+device: cuda:0
+viewer: auto
+video: true
+video_length: 4000
+no_terminations: false
