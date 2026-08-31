@@ -18,3 +18,17 @@ nohup.out
 .ipynb_checkpoints/
 .DS_Store
 .env
+
+# Eval outputs
+eval_*.csv
+*.txt
+MUJOCO_LOG.TXT
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Runs
+logs/
+wandb/

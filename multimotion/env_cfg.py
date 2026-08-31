@@ -21,8 +21,7 @@ class MultiClipSettings:
   njmax: int = 512
   w_root_pos: float = 1.0
   w_action_rate: float = -0.1
-  ee_body_names: tuple[str, ...] = (
-    "left_ankle_roll_link", "right_ankle_roll_link")
+  ee_body_names: tuple[str, ...] = ("left_ankle_roll_link", "right_ankle_roll_link")
   eval: bool = False
   eval_disturbed: bool = False
 
@@ -44,6 +43,11 @@ def make_multiclip_cfg(s: MultiClipSettings = MultiClipSettings(),
     cfg.terminations["ee_body_pos"].params["body_names"] = s.ee_body_names
 
   if s.eval:
+    mc = cfg.commands["motion"]
+    mc.pose_range = {}
+    mc.velocity_range = {}
+    mc.joint_position_range = (0.0, 0.0)
+    cfg.observations["actor"].enable_corruption = False
     # A fall must not truncate the measurement; only clip_timeout ends it.
     for t in ("anchor_pos", "anchor_ori", "ee_body_pos"):
       cfg.terminations.pop(t, None)

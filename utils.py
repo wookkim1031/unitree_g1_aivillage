@@ -17,6 +17,8 @@ from mjlab.utils.gpu import select_gpus
 from mjlab.utils.os import dump_yaml, get_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
+
+from multimotion.dynamic_sampling import SamplingWeightsCfg
 """
 PlayConfig
 """
@@ -55,6 +57,7 @@ class TrainConfig:
     video_interval: int = 2000
     enable_nan_guard: bool = False
     torchrunx_log_dir: str | None = None
+    dynamic_sampling: SamplingWeightsCfg = field(default_factory=SamplingWeightsCfg)
     gpu_ids: list[int] | Literal["all"] | None = field(default_factory=lambda: [0])
     
     @staticmethod
@@ -155,6 +158,29 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     runner_kwargs = {}
     runner = runner_cls(env, agent_cfg, str(log_dir), device, **runner_kwargs)
 
+    policy = runner.get_inference_policy(device)
+
+    # 1. what did you actually get?
+    print(type(policy))                                  # method or function
+    mod = getattr(policy, "__self__", None)              # None if it's the lambda
+    print("unwrapped:", type(mod))
+    
+    print([a for a in vars(runner.alg) if not a.startswith("_")])
+    net = getattr(runner.alg, "policy", None) or runner.alg.actor_critic
+    print("module training flag:", net.training)
+    # print("module training flag:", runner.alg.policy.training)
+    norm = getattr(runner, "obs_normalizer", None)
+    print("normalizer training flag:", getattr(norm, "training", "n/a"))
+    
+    # 2. deterministic?
+    with torch.inference_mode():
+        obs, _ = sweep_env.reset()
+        a1 = policy(obs)
+        a2 = policy(obs)
+    print("shape", a1.shape, "dtype", a1.dtype)
+    print("identical on repeat:", torch.equal(a1, a2))
+    print("max abs diff:", (a1 - a2).abs().max().item())
+    print("action range:", a1.min().item(), a1.max().item())
     # runner.add_git_repo_to_log(__file__)
     if resume_path is not None:
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
@@ -164,12 +190,97 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     if rank == 0:
         dump_yaml(log_dir / "params" / "env.yaml", env_cfg)
         dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
-
+        dump_yaml(log_dir / "params" / "dynamic_sampling.yaml",
+                  asdict(cfg.dynamic_sampling))
+        print("[INFO] dynamic_sampling:", asdict(cfg.dynamic_sampling))
+    """
+    Replacing with 
     runner.learn(
         num_learning_iterations=cfg.agent.max_iterations, init_at_random_ep_len=True
     )
-    env.close()
+    """
 
+    ds_cfg = getattr(cfg, "dynamic_sampling", None)
+    total = cfg.agent.max_iterations
+
+    if ds_cfg is None or not ds_cfg.enabled:
+        runner.learn(num_learning_iterations=total, init_at_random_ep_len=True)
+    else:
+        import math
+        from multimotion.dynamic_sampling import MotionSamplingWeights, SweepEvaluator
+
+        base_env = env.unwrapped
+        cmd = base_env.command_manager.get_term("motion")
+
+        
+        # (1) is this the class you've been editing, and are the names right?
+        print(type(cmd).__name__, cmd.num_clips)
+        print([a for a in vars(cmd) if "clip" in a or "body" in a])
+        
+        # (2) THE assumption: 14 tracked columns, not 30
+        print("body_pos_relative_w:", cmd.body_pos_relative_w.shape, "body_indexes:", len(cmd.body_indexes))
+        
+        # (3) event manager internals
+        em = base_env.event_manager
+        print({k: list(v) for k, v in em._mode_term_names.items()})
+        
+        # (4) does _det_ptr actually step by num_envs on a full reset?
+        cmd._det_ptr = 0
+        base_env.reset(); print("batch0:", cmd.env_clip[:5].tolist(), cmd._det_ptr)
+        base_env.reset(); print("batch1:", cmd.env_clip[:5].tolist(), cmd._det_ptr)
+
+        # Separate measurement env: no failure terminations, no episode cap,
+        # no disturbances, deterministic clip walk. Same corpus as training.
+        sweep_cfg = make_multiclip_cfg(_settings(
+            motion_file=str(motion_path),
+            split_file=motion_cmd.split_file,
+            split=motion_cmd.split,
+            eval=True,
+        ))
+
+        sweep_cfg.scene.num_envs = min(ds_cfg.sweep_num_envs, cmd.num_clips)      # e.g. 512
+        sweep_cfg.seed = cfg.env.seed
+        sweep_env = ManagerBasedRlEnv(cfg=sweep_cfg, device=device)
+        
+        evaluator = SweepEvaluator(sweep_env)
+        assert evaluator.cmd.num_clips == cmd.num_clips, (
+            f"sweep env has {evaluator.cmd.num_clips} clips, training env has {cmd.num_clips}"
+        )
+
+        sweep_cmd = sweep_env.command_manager.get_term("motion")
+        assert sweep_cmd.num_clips == cmd.num_clips, (sweep_cmd.num_clips, cmd.num_clips)
+        
+        a = base_env.observation_manager.group_obs_term_dim["actor"]
+        b = sweep_env.observation_manager.group_obs_term_dim["actor"]
+        print("obs dims:", a, b)
+        assert a == b
+        
+        weights = MotionSamplingWeights(
+            num_clips=cmd.num_clips, device=base_env.device,
+            cfg=ds_cfg, clip_names=list(cmd.clip_names),
+        )
+        
+        ds_cfg.log_dir = str(log_dir)
+        ds_cfg.rank = rank
+        
+        chunk = ds_cfg.sweep_every
+        for k in range(math.ceil(total / chunk)):
+            runner.learn(
+                num_learning_iterations=min(chunk, total - k * chunk),
+                init_at_random_ep_len=(k == 0),
+            )
+            it = (k + 1) * chunk
+            if it < ds_cfg.warmup_iters:
+                continue
+            res = evaluator.run(runner.get_inference_policy(device), ds_cfg)
+            weights.update(res["failed"], epoch=it)
+            cmd.set_clip_weights(weights.weights)
+            print(f"[dyn-sample {it}] fail {res['failed'].float().mean():.3f} "
+                  f"peak {res['peak_dev'].mean():.3f} "
+                  f"iter {runner.current_learning_iteration}", flush=True)
+
+    env.close()
+    sweep_env.close()
 
 def launch_training(task_id: str, args: TrainConfig | None = None):
 
