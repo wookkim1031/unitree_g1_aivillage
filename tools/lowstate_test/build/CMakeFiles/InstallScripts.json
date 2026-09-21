@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/opt/nb/unitree_g1_aivillage/tools/lowstate_test/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

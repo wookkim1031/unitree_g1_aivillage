@@ -150,7 +150,7 @@ def load_policy(cfg: EvalConfig, env, agent_cfg, device):
     env_obs = obs["actor"].shape[-1]
     if env_obs != ckpt_obs:
         raise SystemExit(f"obs mismatch: env {env_obs}, checkpoint {ckpt_obs}")
-    return policy, obs
+    return policy, obs, runner
 
 def unwrap_obs(ret):
     """get_observations returns either (obs, extras) or the obs container.
@@ -200,7 +200,7 @@ def main():
     num_envs = n_clips if cfg.num_envs is None else cfg.num_envs
 
     env, agent_cfg = build_eval_env(cfg, num_envs, device)
-    policy, obs = load_policy(cfg, env, agent_cfg, device) 
+    policy, obs, runner = load_policy(cfg, env, agent_cfg, device) 
 
     cmd = env.unwrapped.command_manager.get_term("motion")
     clip_names = list(cmd.clip_names)
