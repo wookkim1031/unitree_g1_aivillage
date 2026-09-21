@@ -32,3 +32,8 @@ __pycache__/
 # Runs
 logs/
 wandb/
+
+# CMake build output
+build/
+# *.txt above would otherwise swallow these
+!CMakeLists.txt
