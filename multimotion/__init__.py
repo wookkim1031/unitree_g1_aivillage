@@ -4,6 +4,9 @@ from mjlab.tasks.registry import register_mjlab_task, load_rl_cfg
 
 from .env_cfg import MultiClipSettings, make_multiclip_cfg
 
+from multimotion.runner import MotionTrackingOnPolicyRunner
+
+
 BASE_TASK = "Mjlab-Tracking-Flat-Unitree-G1-No-State-Estimation"
 
 MOTION_FILE = "/opt/nb/johan/data/motion_file/phuma_track_v2.npz"
@@ -21,4 +24,5 @@ register_mjlab_task(
     env_cfg=make_multiclip_cfg(_settings(split="train")),
     play_env_cfg=make_multiclip_cfg(_settings(split="test", eval=True), play=True),
     rl_cfg=load_rl_cfg(BASE_TASK),
+    runner_cls=MotionTrackingOnPolicyRunner,
 )

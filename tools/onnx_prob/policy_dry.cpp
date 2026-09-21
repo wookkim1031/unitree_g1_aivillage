@@ -1,0 +1,127 @@
+#include <unitree/robot/channel/channel_subscriber.hpp>
+#include <unitree/idl/hg/LowState_.hpp>
+#include <onnxruntime_cxx_api.h>
+#include <Eigen/Dense>
+
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <iostream>
+#include <mutex>
+#include <thread>
+#include <vector>
+
+using namespace unitree::robot;
+using LowState = unitree_hg::msg::dds_::LowState_;
+
+constexpr int NJ = 29;
+constexpr int NOBS = 98;
+constexpr float STEP_DT = 0.02f;
+constexpr float GAIT_PERIOD = 0.6f;
+
+const std::array<float, NJ> DEFAULT_Q = {
+    -0.1f, 0, 0, 0.3f, -0.2f, 0,   -0.1f, 0, 0, 0.3f, -0.2f, 0,
+     0, 0, 0,
+     0.35f,  0.18f, 0, 0.87f, 0, 0, 0,
+     0.35f, -0.18f, 0, 0.87f, 0, 0, 0};
+
+const std::array<float, NJ> OFFSET = DEFAULT_Q;   // identical in deploy.yaml
+
+const std::array<float, NJ> SCALE = {
+    0.55f, 0.35f, 0.55f, 0.35f, 0.44f, 0.44f,
+    0.55f, 0.35f, 0.55f, 0.35f, 0.44f, 0.44f,
+    0.55f, 0.44f, 0.44f,
+    0.44f, 0.44f, 0.44f, 0.44f, 0.44f, 0.07f, 0.07f,
+    0.44f, 0.44f, 0.44f, 0.44f, 0.44f, 0.07f, 0.07f};
+
+std::mutex g_mtx;
+LowState g_state;
+std::atomic<bool> g_have{false};
+
+int main(int argc, char **argv) {
+    if (argc < 3) {
+        std::cerr << "usage: " << argv[0] << " <iface> <policy.onnx>\n";
+        return 1;
+    }
+    ChannelFactory::Instance()->Init(0, argv[1]);
+
+    auto sub = std::make_shared<ChannelSubscriber<LowState>>("rt/lowstate");
+    sub->InitChannel([](const void *m) {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        g_state = *(const LowState *)m;
+        g_have.store(true);
+    }, 1);
+
+    Ort::Env ort_env(ORT_LOGGING_LEVEL_WARNING, "policy");
+    Ort::SessionOptions opts;
+    Ort::Session session(ort_env, argv[2], opts);
+    Ort::AllocatorWithDefaultOptions alloc;
+    auto in_name  = session.GetInputNameAllocated(0, alloc);
+    auto out_name = session.GetOutputNameAllocated(0, alloc);
+    const char *in_names[]  = {in_name.get()};
+    const char *out_names[] = {out_name.get()};
+    auto mem = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+
+    while (!g_have.load()) { std::cout << "waiting for lowstate..\n"; usleep(200000); }
+
+    std::array<float, NJ> last_action{};          // raw network output
+    float vx = 0.0f, vy = 0.0f, wz = 0.0f;        // command bus, later
+
+    using clock = std::chrono::steady_clock;
+    auto next = clock::now();
+
+    for (int step = 0; step < 250; step++) {      // 5 s, then stop
+        LowState s;
+        { std::lock_guard<std::mutex> lk(g_mtx); s = g_state; }
+
+        std::vector<float> obs;
+        obs.reserve(NOBS);
+
+        for (int i = 0; i < 3; i++) obs.push_back(s.imu_state().gyroscope()[i]);
+
+        auto qd = s.imu_state().quaternion();     // w, x, y, z
+        Eigen::Quaternionf quat(qd[0], qd[1], qd[2], qd[3]);
+        Eigen::Vector3f g_b = quat.toRotationMatrix().transpose() * Eigen::Vector3f(0, 0, -1);
+        for (int i = 0; i < 3; i++) obs.push_back(g_b[i]);
+
+        obs.push_back(vx); obs.push_back(vy); obs.push_back(wz);
+
+        float t = step * STEP_DT;
+        float phase = 2.0f * M_PI * t / GAIT_PERIOD;
+        obs.push_back(std::sin(phase));
+        obs.push_back(std::cos(phase));
+
+        for (int i = 0; i < NJ; i++) obs.push_back(s.motor_state()[i].q() - DEFAULT_Q[i]);
+        for (int i = 0; i < NJ; i++) obs.push_back(s.motor_state()[i].dq());
+        for (int i = 0; i < NJ; i++) obs.push_back(last_action[i]);
+
+        int64_t dims[] = {1, NOBS};
+        auto tensor = Ort::Value::CreateTensor<float>(mem, obs.data(), obs.size(), dims, 2);
+        auto out = session.Run(Ort::RunOptions{nullptr}, in_names, &tensor, 1, out_names, 1);
+        const float *action = out[0].GetTensorData<float>();
+
+        std::array<float, NJ> q_des{};
+        for (int i = 0; i < NJ; i++) {
+            last_action[i] = action[i];           // RAW, before offset/scale
+            q_des[i] = OFFSET[i] + SCALE[i] * action[i];
+        }
+
+        if (step % 25 == 0) {
+            float max_d = 0.0f; int arg = 0;
+            for (int i = 0; i < NJ; i++) {
+                float d = std::fabs(q_des[i] - s.motor_state()[i].q());
+                if (d > max_d) { max_d = d; arg = i; }
+            }
+            std::cout << "step " << step << " t=" << t
+                      << "  q_des[0..5]:";
+            for (int i = 0; i < 6; i++) std::cout << " " << q_des[i];
+            std::cout << "  max|q_des-q|=" << max_d << " @" << arg << std::endl;
+        }
+
+        next += std::chrono::microseconds(20000);
+        std::this_thread::sleep_until(next);
+    }
+    std::cout << "done" << std::endl;
+    return 0;
+}
